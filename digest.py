@@ -24,7 +24,16 @@ import os
 import re
 import smtplib
 import sys
+import ssl
 import urllib.request
+
+# Some Python builds (e.g. python.org's) ship without CA certificates, so the stdlib HTTPS fetch
+# below fails with CERTIFICATE_VERIFY_FAILED. Use certifi's bundle when available to avoid that.
+try:
+    import certifi
+    _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+except Exception:
+    _SSL_CTX = None
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -71,7 +80,7 @@ def fetch_channel_videos(channel_id):
     """Return [{id, published(datetime), title}] from a channel's RSS feed, newest first."""
     url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     req = urllib.request.Request(url, headers={"User-Agent": "ai-yt-digest"})
-    xml = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "replace")
+    xml = urllib.request.urlopen(req, timeout=30, context=_SSL_CTX).read().decode("utf-8", "replace")
     ids = re.findall(r"<yt:videoId>(.*?)</yt:videoId>", xml)
     pubs = re.findall(r"<published>(.*?)</published>", xml)
     titles = re.findall(r"<media:title>(.*?)</media:title>", xml)
