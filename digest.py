@@ -11,7 +11,8 @@ Local usage:
     python digest.py --since 2026-06-01          # override the window start
     python digest.py --limit 3 --no-email        # cap videos (cheap test)
 
-Env (for full run): ANTHROPIC_API_KEY, GMAIL_ADDRESS, GMAIL_APP_PASSWORD, DIGEST_TO
+Env (full run): ANTHROPIC_API_KEY, EMAIL_ADDRESS, EMAIL_PASSWORD, DIGEST_TO,
+and for non-Gmail providers: IMAP_HOST, SMTP_HOST, SMTP_PORT, ARCHIVE_MODE (default "seen").
 """
 
 import argparse
@@ -220,13 +221,41 @@ def _strip_html(html):
     return re.sub(r"[ \t]{2,}", " ", html)
 
 
+# Works with ANY IMAP/SMTP email provider — not just Gmail. Set these in .env for non-Gmail.
+# (EMAIL_* fall back to the older GMAIL_* names so existing setups keep working.)
+EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS") or os.environ.get("GMAIL_ADDRESS", "")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD") or os.environ.get("GMAIL_APP_PASSWORD", "")
+IMAP_HOST = os.environ.get("IMAP_HOST", "imap.gmail.com")
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
+# Dedup/cleanup of processed newsletters:
+#   "seen"  = mark read + remember the message id (SAFE on every provider; default)
+#   "gmail" = expunge from INBOX (= archive on Gmail ONLY; would DELETE on most others)
+ARCHIVE_MODE = os.environ.get("ARCHIVE_MODE", "seen")
+SEEN_FILE = ROOT / "state" / "seen_ids.txt"
+
+
+def _load_seen():
+    if SEEN_FILE.exists():
+        return set(SEEN_FILE.read_text().split())
+    return set()
+
+
+def _add_seen(message_id):
+    if not message_id:
+        return
+    SEEN_FILE.parent.mkdir(exist_ok=True)
+    with open(SEEN_FILE, "a") as f:
+        f.write(message_id.strip() + "\n")
+
+
 def fetch_newsletters(window_start):
     """Pull qualifying-sender messages from INBOX. Returns (items, imap_handle).
-    items: list of {uid, source, subject, date, text}. Caller archives after success."""
+    In 'seen' mode, already-processed messages (by Message-ID) are skipped here."""
     import imaplib
-    addr, pw = os.environ["GMAIL_ADDRESS"], os.environ["GMAIL_APP_PASSWORD"]
-    M = imaplib.IMAP4_SSL("imap.gmail.com", 993)
-    M.login(addr, pw)
+    seen = _load_seen() if ARCHIVE_MODE != "gmail" else set()
+    M = imaplib.IMAP4_SSL(IMAP_HOST, 993)
+    M.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
     M.select("INBOX")
     items = []
     for nl in load_newsletters():
@@ -239,8 +268,12 @@ def fetch_newsletters(window_start):
                 continue
             uid = re.search(rb"UID (\d+)", d[0][0])
             msg = email.message_from_bytes(d[0][1])
+            mid = _decode_hdr(msg.get("Message-ID", ""))
+            if mid and mid in seen:
+                continue  # already processed on a previous run
             items.append({
                 "uid": uid.group(1).decode() if uid else None,
+                "message_id": mid,
                 "source": nl["name"],
                 "subject": _decode_hdr(msg.get("Subject", "")),
                 "date": _decode_hdr(msg.get("Date", "")),
@@ -249,13 +282,20 @@ def fetch_newsletters(window_start):
     return items, M
 
 
-def archive_message(M, uid):
-    """Mark read and remove from INBOX (Gmail: expunge from INBOX = archive, not trash)."""
-    if not uid:
-        return
-    M.uid("STORE", uid, "+FLAGS", r"(\Seen)")
-    M.uid("STORE", uid, "+FLAGS", r"(\Deleted)")
-    M.expunge()
+def mark_processed(M, item):
+    """Record a newsletter as handled, the right way for the provider (see ARCHIVE_MODE)."""
+    uid = item.get("uid")
+    if ARCHIVE_MODE == "gmail":
+        # Gmail only: expunging from INBOX archives the message (does NOT delete it).
+        if uid:
+            M.uid("STORE", uid, "+FLAGS", r"(\Seen)")
+            M.uid("STORE", uid, "+FLAGS", r"(\Deleted)")
+            M.expunge()
+    else:
+        # Safe everywhere: just mark read, and remember the id so we never re-summarize it.
+        if uid:
+            M.uid("STORE", uid, "+FLAGS", r"(\Seen)")
+        _add_seen(item.get("message_id"))
 
 
 def extract_signals(item):
@@ -393,12 +433,12 @@ def markdown_to_html(md):
 
 
 def send_email(subject, html):
-    addr, pw, to = (os.environ["GMAIL_ADDRESS"], os.environ["GMAIL_APP_PASSWORD"],
-                    os.environ.get("DIGEST_TO", os.environ["GMAIL_ADDRESS"]))
+    addr, pw = EMAIL_ADDRESS, EMAIL_PASSWORD
+    to = os.environ.get("DIGEST_TO", addr)
     msg = MIMEMultipart("alternative")
     msg["Subject"], msg["From"], msg["To"] = subject, addr, to
     msg.attach(MIMEText(html, "html"))
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as s:
         s.login(addr, pw)
         s.sendmail(addr, [to], msg.as_string())
 
@@ -511,9 +551,9 @@ def main():
                 print(f"  - {it['source']}: {len(signals)} signal(s) — {it['subject'][:50]}", file=sys.stderr)
                 if not args.no_archive:
                     try:
-                        archive_message(M, it["uid"])
+                        mark_processed(M, it)
                     except Exception as e:
-                        print(f"  ! archive failed ({it['uid']}): {e}", file=sys.stderr)
+                        print(f"  ! mark-processed failed ({it.get('uid')}): {e}", file=sys.stderr)
             try:
                 M.logout()
             except Exception:

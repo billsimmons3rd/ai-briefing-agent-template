@@ -8,7 +8,7 @@ prompt below. The repo already contains a working pipeline — the agent's job i
 
 ```
 This repo is a working "AI briefing agent": it pulls transcripts from YouTube channels I choose and
-reads newsletters from my Gmail inbox, uses an LLM to keep only what matters to me, and emails me a
+reads newsletters from my email inbox, uses an LLM to keep only what matters to me, and emails me a
 short weekly brief. Set it up for me end to end on my operating system. Specifically:
 
 1. Read README.md and digest.py so you understand the pipeline before changing anything.
@@ -17,7 +17,10 @@ short weekly brief. Set it up for me end to end on my operating system. Specific
    what makes YouTube transcripts work without login cookies — set it up and verify it responds.
 3. Walk me through creating the two accounts I need and put them in a local .env (never commit it):
    - an LLM API key (Anthropic or OpenAI), and
-   - a Gmail App Password (remind me it needs 2-Step Verification on and is 16 lowercase letters).
+   - my email. ASK which provider I use (Gmail, Outlook, Yahoo, Fastmail, iCloud, …), set the right
+     IMAP_HOST/SMTP_HOST/SMTP_PORT in .env, and walk me through an app password for THAT provider
+     (defaults are Gmail). If my provider needs OAuth instead of an app password, set that up instead.
+     Keep ARCHIVE_MODE=seen unless I'm on Gmail (then gmail mode is fine).
 4. Copy channels.example.csv -> channels.csv and newsletters.example.csv -> newsletters.csv, then
    ASK ME for my YouTube channels and my newsletter senders and fill them in.
 5. Open prompts/context.md and interview me to write my "what matters" bar (be specific to me).

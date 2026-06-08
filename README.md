@@ -39,7 +39,10 @@ That's it. It installs everything, walks you through the two accounts you need, 
 ## What you need
 - An **AI coding agent** (Claude Code, Cursor, …) to set it up.
 - An **LLM API key** (Anthropic or OpenAI). Note: a $20 chat subscription is **not** API access.
-- A **Gmail App Password** (Security → 2-Step Verification ON → App passwords; 16 lowercase letters).
+- An **email account on any IMAP provider** (Gmail, Outlook, Yahoo, Fastmail, iCloud…) and an
+  **app password** for it. Defaults are set for Gmail; for others you set `IMAP_HOST` / `SMTP_HOST`
+  in `.env` (the agent does this for you). A couple of providers (e.g. Outlook) may require OAuth
+  instead of an app password — your agent will handle it.
 
 ## The one thing that makes it good
 It **filters**, it doesn't summarize. In `prompts/context.md` you define exactly what counts as
@@ -54,7 +57,9 @@ week is working correctly.
   videos come back empty, this is almost always why.
 - YouTube also **rate-limits bursts** (HTTP 429) even from home — the code backs off and retries; keep
   your source list modest.
-- **Gmail App Password ≠ your normal password.** 16 lowercase letters, 2-Step Verification required.
+- **Use an email app password, not your normal login.** Works with any IMAP provider — set
+  `IMAP_HOST`/`SMTP_HOST` in `.env` for non-Gmail. The "archive" cleanup defaults to a safe mode that
+  works everywhere (Gmail's nicer auto-archive is opt-in via `ARCHIVE_MODE=gmail`).
 - **Split the cadence** — newsletters one day, videos another — so you actually read it.
 
 ## Cost & privacy
